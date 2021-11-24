@@ -2,4 +2,4 @@ appdirs==1.4.3
 Django>=2.0.2,<2.0.99
 psycopg2
 Pillow>=5
-python-telegram-bot==11.1.0
+python-telegram-bot

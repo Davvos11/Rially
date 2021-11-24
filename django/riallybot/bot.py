@@ -1,3 +1,5 @@
+from telegram import Update
+
 import settings
 from telegram.ext import Updater
 from telegram.ext import CommandHandler
@@ -22,52 +24,56 @@ def is_submission_open():
     response = os.popen("{} manage.py telegram-submitstate".format(python_path)).read()
     return json.loads(response)["state"]
 
-def msg(bot, update, txt):
-    bot.send_message(chat_id=update.message.chat_id, text=str(txt))
+def msg(update: Update, context, txt):
+    context.bot.send_message(chat_id=update.effective_chat.id, text=str(txt))
 
-def msg_formatted(bot, update, txt, mode="Markdown"):
-    bot.send_message(chat_id=update.message.chat_id, text=str(txt), parse_mode=mode)
+def msg_formatted(update: Update, context, txt, mode="Markdown"):
+    context.bot.send_message(chat_id=update.effective_chat.id, text=str(txt), parse_mode=mode)
 
-def start(bot, update):
-    bot.send_message(chat_id=update.message.chat_id, text= \
+def start(update: Update, context):
+    context.bot.send_message(chat_id=update.effective_chat.id, text= \
         f"Welcome to the Rially of {datetime.now().year}! \nPlease log in with /login [token]")
 
 
-def logout(bot, update):
+def logout(update: Update, context):
     response = os.popen("{} manage.py telegram-unregister --chatid ".format(python_path) + \
-                        str(update.message.chat_id)).read()
-    bot.send_message(chat_id=update.message.chat_id, text= \
+                        str(update.effective_chat.id)).read()
+    context.bot.send_message(chat_id=update.effective_chat.id, text= \
         "You succesfully logged out. "
-        + str(update.message.chat_id))
-    start(bot, update)
+        + str(update.effective_chat.id))
+    start(update, context)
 
 
-def login(bot, update, args):
+def login(update: Update, context, args):
     # [A-Za-z0-9]{6}
     # [0-9]{5-15}
     if len(args) == 0:
-        msg(bot, update, "Please provide your token.")
+        msg(update, context, "Please provide your token.")
         return
     token = args[0]
     pattern = re.compile("[A-Za-z0-9]{6}")
     if not pattern.match(token):
-        msg(bot, update, "This token is not valid.")
+        msg(update, context, "This token is not valid.")
         return
 
     response = os.popen("{} manage.py telegram-register --token ".format(python_path) + token + \
-                        " --chatid " + str(update.message.chat_id)).read()
+                        " --chatid " + str(update.effective_chat.id)).read()
     response = json.loads(response)
 
     if not response['result']:
-        msg(bot, update, "This token is not valid.")
+        msg(update, context, "This token is not valid.")
     else:
-        msg(bot, update, "Successfully registered as " + response['team'] + ". Use /logout to log out.")
+        msg(update, context, "Successfully registered as " + response['team'] + ". Use /logout to log out.")
 
 
-def help(bot, update):
+def help(update: Update, context):
     response = os.popen("{} manage.py telegram-team --chatid ".format(python_path) + \
-                        str(update.message.chat_id)).read()
-    response = json.loads(response)
+                        str(update.effective_chat.id)).read()
+    try:
+        response = json.loads(response)
+    except json.decoder.JSONDecodeError:
+        response = dict()
+        response['in_team'] = False
     m = ""
     if response['in_team']:
         m = m + f"You are in team {response['team']}.\n\nTo submit a picture or video, send it to me with the correct code in the caption.\n" \
@@ -75,49 +81,49 @@ def help(bot, update):
                 f"location 1 or `T-1` for task 1"
     else:
         m = m + "You are not in a team.\n\nTo log in, use /login [token]"
-    msg_formatted(bot, update, m)
+    msg_formatted(update, context, m)
 
-def submit(bot, update):
+def submit(update: Update, context):
     if not is_submission_open():
-        msg(bot, update, "Submissions have not opened yet!")
+        msg(update, context, "Submissions have not opened yet!")
         return
     file_id = 0
     extension = ""
-    if len(update.message.photo) > 0:
-        file_id = update.message.photo[-1].file_id
+    if len(context.message.photo) > 0:
+        file_id = context.message.photo[-1].file_id
         extension = ".jpg"
-    elif update.message.video != None:
-        file_id = update.message.video.file_id
+    elif context.message.video != None:
+        file_id = context.message.video.file_id
         extension = ".mp4"
     else:
-        msg(bot, update, "No video or photo provided.")
+        msg(update, context, "No video or photo provided.")
 
-    photo_file = bot.get_file(file_id)
+    photo_file = update.get_file(file_id)
     name = ''.join(random.choice(string.ascii_uppercase + string.ascii_lowercase \
                                  + string.digits) for _ in range(32)) + extension
     photo_file.download(os.path.join(media_path, name))
 
 
     pattern = re.compile("^(T|L|PL|TL)-\d{1,3}(-\d{1,3})?$")
-    if update.message.caption is None or not pattern.match(update.message.caption):
-        msg_formatted(bot, update, f"Add the code of the task to the caption of the picture.\n" \
+    if context.message.caption is None or not pattern.match(context.message.caption):
+        msg_formatted(update, context, f"Add the code of the task to the caption of the picture.\n" \
             f"Use e.g. `L-1` for location 1, `PL-1-1` for bonus picture 1, location 1, `TL1-1` for task 1, location 1 or `T-1` for task 1")
         os.popen("rm {}".format(os.path.join(media_path, name)))
         return
 
     command = "{} manage.py telegram-submit --filename {} \
-        --chatid {} --id {}".format(python_path, name, update.message.chat_id, update.message.caption)
+        --chatid {} --id {}".format(python_path, name, update.effective_chat.id, context.message.caption)
     response = json.loads(os.popen(command).read())
     if response['result']:
-        msg(bot, update, "We received the submission successfully!\nPlease check the website to see its status.")
+        msg(update, context, "We received the submission successfully!\nPlease check the website to see its status.")
     else:
-        msg(bot, update, "Oops!\nThe following error occurred: {}".format(response['reason']))
+        msg(update, context, "Oops!\nThe following error occurred: {}".format(response['reason']))
 
-def submit_open(bot, update):
+def submit_open(update: Update, context):
     if is_submission_open():
-        msg(bot, update, "Submissions have opened!")
+        msg(update, context, "Submissions have opened!")
     else:
-        msg(bot, update, "Submissions are closed now.")
+        msg(update, context, "Submissions are closed now.")
 
 
 start_handler = CommandHandler('start', start)
